@@ -115,7 +115,9 @@ public:
         ss << "#define OSD_ENABLE_PATCH_CULL\n";
         ss << "#define GEOMETRY_OUT_LINE\n";
 
-        ss << "#define OSD_PATCH_ENABLE_SINGLE_CREASE\n";
+        if (desc.IsAdaptive() && type == Far::PatchDescriptor::REGULAR) {
+            ss << "#define OSD_PATCH_ENABLE_SINGLE_CREASE\n";
+        }
 
         // include osd PatchCommon
         ss << Osd::GLSLPatchShaderSource::GetCommonShaderSource();
@@ -521,7 +523,7 @@ int main(int argc, char ** argv) {
 #endif
     }
 
-    if (not glfwInit()) {
+    if (! glfwInit()) {
         std::cout << "Failed to initialize GLFW\n";
         return 1;
     }
@@ -532,7 +534,7 @@ int main(int argc, char ** argv) {
     GLUtils::SetMinimumGLVersion();
 
     GLFWwindow *window = glfwCreateWindow(width, height, windowTitle, NULL, NULL);
-    if (not window) {
+    if (! window) {
         std::cerr << "Failed to create OpenGL context.\n";
         glfwTerminate();
     }

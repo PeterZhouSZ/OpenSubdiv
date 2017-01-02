@@ -38,8 +38,10 @@ namespace OPENSUBDIV_VERSION {
 namespace Far {
 
 ///
-/// \brief TopologyLevel is an interface for accessing data in a specific level of a refined
-/// topology hierarchy.  Instances of TopologyLevel are created and owned by a TopologyRefiner,
+/// \brief An interface for accessing data in a specific level of a refined topology hierarchy.
+///
+/// TopologyLevel provides an interface to data in a specific level of a topology hierarchy.
+/// Instances of TopologyLevel are created and owned by a TopologyRefiner,
 /// which will return const-references to them.  Such references are only valid during the
 /// lifetime of TopologyRefiner that created and returned them, and only for a given refinement,
 /// i.e. if the TopologyRefiner is re-refined, any references to TopoologyLevels are invalidated.
@@ -100,10 +102,10 @@ public:
     ConstIndexArray GetEdgeFaces(Index e) const    { return _level->getEdgeFaces(e); }
 
     /// \brief Access the faces incident a given vertex
-    ConstIndexArray GetVertexFaces( Index v) const { return _level->getVertexFaces(v); }
+    ConstIndexArray GetVertexFaces(Index v) const  { return _level->getVertexFaces(v); }
 
     /// \brief Access the edges incident a given vertex
-    ConstIndexArray GetVertexEdges( Index v) const { return _level->getVertexEdges(v); }
+    ConstIndexArray GetVertexEdges(Index v) const  { return _level->getVertexEdges(v); }
 
     /// \brief Access the local indices of a vertex with respect to its incident faces
     ConstLocalIndexArray GetVertexFaceLocalIndices(Index v) const { return _level->getVertexFaceLocalIndices(v); }
@@ -116,6 +118,23 @@ public:
 
     /// \brief Identify the edge matching the given vertex pair
     Index FindEdge(Index v0, Index v1) const { return _level->findEdge(v0, v1); }
+    //@}
+
+    //@{
+    /// @name Methods to inspect other topological properties of individual components:
+    ///
+
+    /// \brief Return if the edge is non-manifold
+    bool IsEdgeNonManifold(Index e) const   { return _level->isEdgeNonManifold(e); }
+
+    /// \brief Return if the vertex is non-manifold
+    bool IsVertexNonManifold(Index v) const { return _level->isVertexNonManifold(v); }
+
+    /// \brief Return if the edge is a boundary
+    bool IsEdgeBoundary(Index e) const   { return _level->getEdgeTag(e)._boundary; }
+
+    /// \brief Return if the vertex is a boundary
+    bool IsVertexBoundary(Index v) const { return _level->getVertexTag(v)._boundary; }
     //@}
 
     //@{
@@ -157,16 +176,46 @@ public:
     /// the way in which vertices associated with the face are accessed -- an
     /// array of fixed size containing the indices for each corner is provided
     /// for inspection, iteration, etc.
+    ///
+    /// When the face-varying topology around a vertex "matches", it has the
+    /// same limit properties and so results in the same limit surface when
+    /// collections of adjacent vertices match.  Like other references to
+    /// "topology", this includes consideration of sharpness.  So it may be
+    /// that face-varying values are assigned around a vertex on a boundary in
+    /// a way that appears to match, but the face-varying interpolation option
+    /// requires sharpening of that vertex in face-varying space -- the
+    /// difference in the topology of the resulting limit surfaces leading to
+    /// the query returning false for the match.  The edge case is simpler in
+    /// that it only considers continuity across the edge, not the entire
+    /// neighborhood around each end vertex.
 
     /// \brief Return the number of face-varying channels (should be same for all levels)
-    int GetNumFVarChannels() const              { return _level->getNumFVarChannels(); }
+    int GetNumFVarChannels() const { return _level->getNumFVarChannels(); }
 
     /// \brief Return the total number of face-varying values in a particular channel
     /// (the upper bound of a face-varying value index)
     int GetNumFVarValues(int channel = 0) const { return _level->getNumFVarValues(channel); }
 
     /// \brief Access the face-varying values associated with a particular face
-    ConstIndexArray GetFaceFVarValues(Index f, int channel = 0) const { return _level->getFaceFVarValues(f, channel); }
+    ConstIndexArray GetFaceFVarValues(Index f, int channel = 0) const {
+        return _level->getFaceFVarValues(f, channel);
+    }
+
+    /// \brief Return if face-varying topology around a vertex matches
+    bool DoesVertexFVarTopologyMatch(Index v, int channel = 0) const {
+        return _level->doesVertexFVarTopologyMatch(v, channel);
+    }
+
+    /// \brief Return if face-varying topology across the edge only matches
+    bool DoesEdgeFVarTopologyMatch(Index e, int channel = 0) const {
+        return _level->doesEdgeFVarTopologyMatch(e, channel);
+    }
+
+    /// \brief Return if face-varying topology around a face matches
+    bool DoesFaceFVarTopologyMatch(Index f, int channel = 0) const {
+        return _level->doesFaceFVarTopologyMatch(f, channel);
+    }
+
     //@}
 
     //@{

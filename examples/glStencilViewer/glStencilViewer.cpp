@@ -102,7 +102,8 @@ enum HudCheckBox { kHUD_CB_DISPLAY_CONTROL_MESH_EDGES,
                    kHUD_CB_DISPLAY_CONTROL_MESH_VERTS,
                    kHUD_CB_ANIMATE_VERTICES,
                    kHUD_CB_FREEZE,
-                   kHUD_CB_BILINEAR };
+                   kHUD_CB_ADAPTIVE,
+                   kHUD_CB_INF_SHARP_PATCH };
 
 int g_kernel = kCPU,
     g_isolationLevel = 5; // max level of extraordinary feature isolation
@@ -118,7 +119,8 @@ int   g_running = 1,
       g_freeze=0,
       g_repeatCount;
 
-bool g_bilinear=false;
+bool g_adaptive=true,
+     g_infSharpPatch=false;
 
 float g_rotate[2] = {0, 0},
       g_dolly = 5,
@@ -310,13 +312,30 @@ createMesh(ShapeDesc const & shapeDesc, int level) {
     // save rest pose
     g_orgPositions = shape->verts;
 
-    if (g_bilinear) {
+    // compute model bounding
+    float min[3] = { FLT_MAX,  FLT_MAX,  FLT_MAX};
+    float max[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    for (size_t i=0; i <g_orgPositions.size()/3; ++i) {
+        for(int j=0; j<3; ++j) {
+            float v = g_orgPositions[i*3+j];
+            min[j] = std::min(min[j], v);
+            max[j] = std::max(max[j], v);
+        }
+    }
+    for (int j=0; j<3; ++j) {
+        g_center[j] = (min[j] + max[j]) * 0.5f;
+        g_size += (max[j]-min[j])*(max[j]-min[j]);
+    }
+    g_size = sqrtf(g_size);
+
+    if (!g_adaptive) {
         Far::TopologyRefiner::UniformOptions options(level);
         options.fullTopologyInLastLevel = true;
         refiner->RefineUniform(options);
     } else {
         Far::TopologyRefiner::AdaptiveOptions options(level);
         options.useSingleCreasePatch = false;
+        options.useInfSharpPatch = g_infSharpPatch;
         refiner->RefineAdaptive(options);
     }
 
@@ -480,8 +499,8 @@ public:
 
     void Use( ) {
 
-        if (not _program) {
-            assert( _vtxSrc and _frgSrc );
+        if (! _program) {
+            assert( _vtxSrc && _frgSrc );
 
             _program = glCreateProgram();
 
@@ -749,12 +768,12 @@ display() {
 static void
 idle() {
 
-    if (not g_freeze)
+    if (! g_freeze)
         g_frame++;
 
     updateGeom();
 
-    if (g_repeatCount != 0 and g_frame >= g_repeatCount)
+    if (g_repeatCount != 0 && g_frame >= g_repeatCount)
         g_running = 0;
 }
 
@@ -771,7 +790,7 @@ motion(GLFWwindow *, double dx, double dy) {
         // pan
         g_pan[0] -= g_dolly*(x - g_prev_x)/g_width;
         g_pan[1] += g_dolly*(y - g_prev_y)/g_height;
-    } else if ((g_mbutton[0] && !g_mbutton[1] && g_mbutton[2]) or
+    } else if ((g_mbutton[0] && !g_mbutton[1] && g_mbutton[2]) ||
                (!g_mbutton[0] && g_mbutton[1] && !g_mbutton[2])) {
         // dolly
         g_dolly -= g_dolly*0.01f*(x - g_prev_x);
@@ -835,6 +854,14 @@ setSamples(bool add) {
 
 //------------------------------------------------------------------------------
 static void
+fitFrame() {
+
+    g_pan[0] = g_pan[1] = 0;
+    g_dolly = g_size;
+}
+
+//------------------------------------------------------------------------------
+static void
 keyboard(GLFWwindow *, int key, int /* scancode */, int event, int /* mods */) {
 
     if (event == GLFW_RELEASE) return;
@@ -842,6 +869,8 @@ keyboard(GLFWwindow *, int key, int /* scancode */, int event, int /* mods */) {
 
     switch (key) {
         case 'Q': g_running = 0; break;
+
+        case 'F': fitFrame(); break;
 
         case '=': setSamples(true); break;
 
@@ -858,7 +887,7 @@ callbackKernel(int k) {
     g_kernel = k;
 
 #ifdef OPENSUBDIV_HAS_OPENCL
-    if (g_kernel == kCL and (not g_clDeviceContext.IsInitialized())) {
+    if (g_kernel == kCL && (!g_clDeviceContext.IsInitialized())) {
         if (g_clDeviceContext.Initialize() == false) {
             printf("Error in initializing OpenCL\n");
             exit(1);
@@ -866,7 +895,7 @@ callbackKernel(int k) {
     }
 #endif
 #ifdef OPENSUBDIV_HAS_CUDA
-    if (g_kernel == kCUDA and (not g_cudaDeviceContext.IsInitialized())) {
+    if (g_kernel == kCUDA && (!g_cudaDeviceContext.IsInitialized())) {
         if (g_cudaDeviceContext.Initialize() == false) {
             printf("Error in initializing Cuda\n");
             exit(1);
@@ -916,8 +945,11 @@ callbackCheckBox(bool checked, int button) {
     case kHUD_CB_FREEZE:
         g_freeze = checked;
         break;
-    case kHUD_CB_BILINEAR:
-        g_bilinear = checked;
+    case kHUD_CB_ADAPTIVE:
+        g_adaptive = checked;
+        rebuildMesh();
+    case kHUD_CB_INF_SHARP_PATCH:
+        g_infSharpPatch = checked;
         rebuildMesh();
     }
 }
@@ -947,8 +979,11 @@ initHUD() {
                       10, 50, callbackCheckBox, kHUD_CB_ANIMATE_VERTICES, 'm');
     g_hud.AddCheckBox("Freeze (spc)", g_freeze != 0,
                       10, 70, callbackCheckBox, kHUD_CB_FREEZE, ' ');
-    g_hud.AddCheckBox("Bilinear Stencils (`)", g_bilinear != 0,
-                      10, 190, callbackCheckBox, kHUD_CB_BILINEAR, '`');
+
+    g_hud.AddCheckBox("Adaptive (`)", g_adaptive != 0,
+                      10, 190, callbackCheckBox, kHUD_CB_ADAPTIVE, '`');
+    g_hud.AddCheckBox("Inf Sharp Patch  (I)", g_infSharpPatch != 0,
+                      10, 210, callbackCheckBox, kHUD_CB_INF_SHARP_PATCH, 'i');
 
     int compute_pulldown = g_hud.AddPullDown("Compute (K)", 250, 10, 300, callbackKernel, 'k');
     g_hud.AddPullDownButton(compute_pulldown, "CPU", kCPU);
@@ -978,7 +1013,7 @@ initHUD() {
     for (int i = 1; i < 11; ++i) {
         char level[16];
         sprintf(level, "Lv. %d", i);
-        g_hud.AddRadioButton(3, level, i==g_isolationLevel, 10, 210+i*20, callbackLevel, i, '0'+(i%10));
+        g_hud.AddRadioButton(3, level, i==g_isolationLevel, 10, 250+i*20, callbackLevel, i, '0'+(i%10));
     }
 
     int pulldown_handle = g_hud.AddPullDown("Shape (N)", -300, 10, 300, callbackModel, 'n');
@@ -1037,7 +1072,7 @@ int main(int argc, char **argv) {
     initShapes();
 
     glfwSetErrorCallback(callbackErrorGLFW);
-    if (not glfwInit()) {
+    if (! glfwInit()) {
         printf("Failed to initialize GLFW\n");
         return 1;
     }
@@ -1052,7 +1087,7 @@ int main(int argc, char **argv) {
 
         // apparently glfwGetPrimaryMonitor fails under linux : if no primary,
         // settle for the first one in the list
-        if (not g_primary) {
+        if (! g_primary) {
             int count=0;
             GLFWmonitor ** monitors = glfwGetMonitors(&count);
 
@@ -1067,8 +1102,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (not (g_window=glfwCreateWindow(g_width, g_height, windowTitle,
-                           fullscreen and g_primary ? g_primary : NULL, NULL))) {
+    if (! (g_window=glfwCreateWindow(g_width, g_height, windowTitle,
+                           fullscreen && g_primary ? g_primary : NULL, NULL))) {
         std::cerr << "Failed to create OpenGL context.\n";
         glfwTerminate();
         return 1;
